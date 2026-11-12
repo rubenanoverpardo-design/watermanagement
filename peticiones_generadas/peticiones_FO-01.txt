@@ -1,0 +1,3 @@
+# Peticiones de FO-01: 2 estaciones, 10 s cada riego, 1 vuelta(s)
+WS-01#10
+WS-02#10
