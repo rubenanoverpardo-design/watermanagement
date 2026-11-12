@@ -1,0 +1,217 @@
+=====================================================================
+ WaterManagement - COMANDOS PARA LOS ORDENADORES DEL AULA
+=====================================================================
+
+CENTRAL y Kafka ya estan en Railway. En el aula solo se lanzan:
+   PC 1 -> las estaciones (Monitor + Engine de cada una)
+   PC 2 -> los operarios (FO)
+
+Todos los comandos son para PowerShell (no Git Bash).
+
+Direcciones de Railway:
+   Kafka ............ thomas.proxy.rlwy.net:37949
+   CENTRAL (sockets)  yamanote.proxy.rlwy.net:24727
+   Panel web ........ https://watermanagement-sd-production-447e.up.railway.app
+
+
+---------------------------------------------------------------------
+ 0. COMPROBAR LA RED  (en los DOS ordenadores, antes de nada)
+---------------------------------------------------------------------
+
+Test-NetConnection thomas.proxy.rlwy.net -Port 37949
+Test-NetConnection yamanote.proxy.rlwy.net -Port 24727
+
+En los dos tiene que salir:   TcpTestSucceeded : True
+
+   - El PC de los operarios solo necesita el primero (Kafka).
+   - El PC de las estaciones necesita los dos.
+   - Si sale False: esa red bloquea los puertos de Railway. Pasa en la
+     wifi eduroam (comprobado). Usar el cable del aula o los datos del
+     movil. No es un fallo del programa.
+
+Comprobar tambien que Docker esta arrancado:
+
+docker info
+
+   Si da error: abrir Docker Desktop y esperar a que termine de arrancar.
+
+
+---------------------------------------------------------------------
+ 1. TRAER EL CODIGO  (en los DOS ordenadores)
+---------------------------------------------------------------------
+
+OPCION A - desde GitHub (solo si los cambios ya estan subidos):
+
+git clone https://github.com/ral44-ua/watermanagement-sd
+cd watermanagement-sd
+
+OPCION B - carpeta copiada (USB, Drive...): copiar la carpeta
+watermanagement-sd entera y entrar en ella:
+
+cd C:\ruta\donde\este\watermanagement-sd
+
+   OJO: mientras los cambios del FO, del Engine y de los scripts no
+   esten en GitHub, hay que usar la OPCION B. Con la A se descargaria
+   la version antigua: sin el arreglo del reloj y sin estos scripts.
+
+
+---------------------------------------------------------------------
+ 2. PC 1 - ESTACIONES
+---------------------------------------------------------------------
+
+Dos estaciones (WS-01 y WS-02):
+
+powershell -ExecutionPolicy Bypass -File scripts\pc_estaciones.ps1 -Numero 2
+
+Cambiar el 2 por cualquier numero de 1 a 10. Se abre una ventana por
+cada Monitor y otra por cada Engine. Al terminar tiene que poner
+"Estaciones en marcha" y en el panel web salen en VERDE.
+
+En la ventana de cada Engine:
+   k = averia on/off    p = parar riego    r = pedir riego    q = salir
+
+
+---------------------------------------------------------------------
+ 3. PC 2 - OPERARIOS
+---------------------------------------------------------------------
+
+Dos operarios (FO-01 y FO-02) que piden riegos a las 2 estaciones:
+
+powershell -ExecutionPolicy Bypass -File scripts\pc_operarios.ps1 -Numero 2 -Estaciones 2
+
+   -Numero ...... cuantos operarios (1 a 10)
+   -Estaciones .. cuantas estaciones se lanzaron en el PC 1 (el mismo
+                  numero que se puso alli)
+
+A cada operario se le genera su fichero de peticiones (carpeta
+peticiones_generadas). Cuando acaba el fichero pasa al menu manual:
+   1 = ver estaciones    2 = pedir riego (ejemplo: WS-01#30)
+
+Variantes:
+
+powershell -ExecutionPolicy Bypass -File scripts\pc_operarios.ps1 -Numero 3 -Estaciones 5 -Segundos 15
+powershell -ExecutionPolicy Bypass -File scripts\pc_operarios.ps1 -Numero 3 -Estaciones 5 -Vueltas 2
+powershell -ExecutionPolicy Bypass -File scripts\pc_operarios.ps1 -Numero 2 -Manual
+
+   -Segundos 15 .. cada riego dura 15 s (por defecto 10)
+   -Vueltas 2 .... cada operario recorre las estaciones dos veces
+   -Manual ....... sin fichero, solo el menu
+
+
+---------------------------------------------------------------------
+ 4. SI EL PROFESOR PIDE UNA INSTANCIA NUEVA  (sin parar las demas)
+---------------------------------------------------------------------
+
+Una estacion mas (PC 1):
+
+powershell -ExecutionPolicy Bypass -File scripts\pc_estaciones.ps1 -Estaciones "WS-11|Plaza Mayor"
+
+Un operario mas, con menu manual (PC 2):
+
+powershell -ExecutionPolicy Bypass -File scripts\pc_operarios.ps1 -Operarios "FO-30"
+
+Un operario mas con el fichero de ejemplo del repo (PC 2):
+
+powershell -ExecutionPolicy Bypass -File scripts\pc_operarios.ps1 -Operarios "FO-31|WM_FO/peticiones.txt"
+
+   OJO: ese fichero de ejemplo pide riegos a WS-04 y WS-11. Si esas
+   estaciones no estan lanzadas, CENTRAL contesta DENEGADA (no existe).
+
+
+---------------------------------------------------------------------
+ 5. SIMULAR CAIDAS  (resiliencia)
+---------------------------------------------------------------------
+
+Ver lo que esta en marcha:
+
+docker ps
+
+Tirar de golpe un Engine, un Monitor o un operario (ejemplos):
+
+docker kill ws01-e
+docker kill ws01-m
+docker kill fo01
+
+   Nombres: wsNN-m = Monitor, wsNN-e = Engine, foNN = operario.
+   Tambien vale Ctrl+C en su ventana.
+
+Volver a levantar lo que se ha tirado: repetir el comando del punto 4
+con ese ID. Ejemplos:
+
+powershell -ExecutionPolicy Bypass -File scripts\pc_estaciones.ps1 -Estaciones "WS-01|River Park"
+powershell -ExecutionPolicy Bypass -File scripts\pc_operarios.ps1 -Operarios "FO-01"
+
+   - Relanzar una estacion asi reinicia su Monitor y su Engine.
+   - Un operario relanzado con el MISMO ID recibe los avisos que se
+     perdio (el RESUMEN), marcados como [PENDIENTE].
+   - Tras un cierre brusco, tarda unos 10 s en volver a recibir
+     mensajes de Kafka. Es normal.
+
+
+---------------------------------------------------------------------
+ 6. PARARLO TODO
+---------------------------------------------------------------------
+
+PC 2:
+
+powershell -ExecutionPolicy Bypass -File scripts\pc_operarios.ps1 -Parar
+
+PC 1:
+
+powershell -ExecutionPolicy Bypass -File scripts\pc_estaciones.ps1 -Parar
+
+
+---------------------------------------------------------------------
+ 7. SI ALGO FALLA
+---------------------------------------------------------------------
+
+"CENTRAL no responde" o "Kafka no responde" al lanzar un script
+   -> repetir el punto 0. Si da False es la red. Si da True, mirar en
+      Railway que los dos servicios esten desplegados.
+
+Las direcciones de Railway han cambiado
+   -> se pueden pasar a los scripts sin tocar nada mas:
+
+powershell -ExecutionPolicy Bypass -File scripts\pc_estaciones.ps1 -Numero 2 -Central HOST:PUERTO -Kafka HOST:PUERTO
+powershell -ExecutionPolicy Bypass -File scripts\pc_operarios.ps1 -Numero 2 -Estaciones 2 -Kafka HOST:PUERTO
+
+Ver que haria un script sin arrancar nada (no necesita Docker ni red)
+
+powershell -ExecutionPolicy Bypass -File scripts\pc_estaciones.ps1 -Numero 5 -Simular
+powershell -ExecutionPolicy Bypass -File scripts\pc_operarios.ps1 -Numero 3 -Estaciones 5 -Simular
+
+El script no se deja ejecutar ("la ejecucion de scripts esta deshabilitada")
+   -> usar siempre la forma completa: powershell -ExecutionPolicy Bypass -File ...
+
+El ordenador tiene la hora mal
+   -> no hay que hacer nada: el FO y el Engine usan la hora de CENTRAL
+      para sus peticiones.
+
+Las estaciones salen "Desconectada" en el panel
+   -> mirar la ventana del Monitor de esa estacion. Si pone "No se puede
+      conectar con CENTRAL", es la red (punto 0).
+
+
+---------------------------------------------------------------------
+ 8. SIN LOS SCRIPTS  (comandos de Docker a mano, por si acaso)
+---------------------------------------------------------------------
+
+Construir las imagenes (desde la carpeta del repo, una vez por PC):
+
+docker build -f WM_WS/WS_M/Dockerfile -t wm-ws-m .
+docker build -f WM_WS/WS_E/Dockerfile -t wm-ws-e .
+docker build -f WM_FO/Dockerfile -t wm-fo .
+docker network create wm
+
+Una estacion (PC 1): primero el Monitor y, en otra ventana, su Engine:
+
+docker run -it --rm --name ws01-m --network wm wm-ws-m 9100 yamanote.proxy.rlwy.net:24727 WS-01 --ubicacion "River Park"
+docker run -it --rm --name ws01-e --network wm -v wm-ws01:/datos wm-ws-e thomas.proxy.rlwy.net:37949 ws01-m:9100
+
+Un operario con menu manual (PC 2):
+
+docker run -it --rm --name fo01 wm-fo thomas.proxy.rlwy.net:37949 FO-01
+
+Un operario con el fichero de ejemplo (PC 2):
+
+docker run -it --rm --name fo02 wm-fo thomas.proxy.rlwy.net:37949 FO-02 --fichero WM_FO/peticiones.txt
